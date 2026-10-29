@@ -1,0 +1,23 @@
+{
+  "name": "standin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stands in for you on forms, logins and API glue.",
+  "bin": {
+    "standin": "src/cli.mjs"
+  },
+  "scripts": {
+    "postinstall": "playwright install chromium || true",
+    "test": "node --test test/*.test.mjs",
+    "standin": "node src/cli.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.49.0",
+    "yaml": "^2.6.0"
+  },
+  "optionalDependencies": {
+    "@browserbasehq/stagehand": "^2.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "standin-local",
+  "owner": { "name": "J" },
+  "plugins": [
+    {
+      "name": "standin",
+      "source": "./standin",
+      "description": "Logs into sites, fills forms, moves API keys between services, handles 2FA."
+    }
+  ]
+}

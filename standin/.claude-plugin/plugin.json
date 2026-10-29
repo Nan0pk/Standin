@@ -1,0 +1,8 @@
+{
+  "name": "standin",
+  "version": "0.3.0",
+  "description": "Logs into sites, fills forms, moves API keys between services, and handles 2FA — so you never touch a login form or copy a token again.",
+  "author": { "name": "J" },
+  "keywords": ["forms", "logins", "credentials", "api-keys", "2fa", "browser", "automation"],
+  "mcpServers": "./.mcp.json"
+}

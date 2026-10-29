@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8"><title>Test Portal</title>
+<div id="login">
+  <h3>Sign in</h3>
+  <input id="username" placeholder="user">
+  <input id="password" type="password" placeholder="pass">
+  <button id="signin">Sign in</button>
+</div>
+<div id="otpstep" hidden>
+  <input id="otp" placeholder="6-digit code">
+  <button id="verify">Verify</button>
+</div>
+<form id="app" hidden>
+  <input id="invoice" name="invoice">
+  <input id="amount" name="amount" type="number">
+  <select id="currency"><option>USD</option><option>PKR</option><option>EUR</option></select>
+  <input id="agree" type="checkbox">
+  <input id="attachment" type="file">
+  <button id="submit" type="button">Submit</button>
+</form>
+<div id="done" hidden>
+  <span id="confirmation"></span>
+  <span id="echo"></span>
+  <span id="file"></span>
+</div>
+<script>
+  const $ = s => document.querySelector(s);
+  let user = '';
+  $('#signin').onclick = () => {
+    if (!$('#username').value || !$('#password').value) return;
+    user = $('#username').value;
+    $('#login').hidden = true;
+    setTimeout(() => { $('#otpstep').hidden = false; }, 200);
+  };
+  $('#verify').onclick = () => {
+    if (!/^\d{6}$/.test($('#otp').value)) return;
+    $('#otpstep').hidden = true;
+    $('#app').hidden = false;
+  };
+  $('#submit').onclick = () => {
+    if (!$('#agree').checked) return;
+    $('#app').hidden = true;
+    $('#done').hidden = false;
+    $('#confirmation').textContent = 'CONF-' + $('#invoice').value + '-' + $('#currency').value + '-' + $('#amount').value;
+    $('#echo').textContent = user;
+    $('#file').textContent = ($('#attachment').files[0] || {}).name || 'none';
+  };
+</script>

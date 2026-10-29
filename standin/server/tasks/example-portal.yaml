@@ -1,0 +1,29 @@
+# One file = one repetitive job. Copy this, swap the selectors (use `standin record <url>`).
+name: example-portal-invoice
+profile: example          # persistent browser session; sign in once with `standin login`
+account: example          # which vault account to pull secrets from
+url: https://portal.example.com/invoices/new
+
+steps:
+  # Runs only if the sign-in form is actually showing, otherwise skipped.
+  - login:
+      ifSelector: "#username"
+      fields:
+        "#username": "{{vault.example.username}}"
+        "#password": "{{vault.example.password}}"
+      submit: "#signin"
+      otp:
+        selector: "#otp"
+        value: "{{vault.example.totp}}"
+        submit: "#verify"
+
+  - fill:
+      "#invoice": "{{data.invoice_no}}"
+      "#amount": "{{data.amount}}"
+      "select#currency": "{{data.currency}}"
+      "#agree": "true"
+      "#attachment": "{{data.pdf_path}}"
+
+  - submit: "#submit"
+  - extract:
+      confirmation: "#confirmation"
