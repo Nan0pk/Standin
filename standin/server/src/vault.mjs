@@ -164,11 +164,24 @@ export function importDocument(file, { defaultAccount } = {}) {
   }
 
   const summary = {};
+  if (triples.length === 0) return summary;
+
+  // ⚡ Bolt optimization: batch writes to prevent O(N²) encryption/disk I/O during bulk import
+  const data = fs.existsSync(VAULT_FILE) ? fileVault() : {};
+  let changed = false;
+
   for (const [acct, rawField, value] of triples) {
     const a = slug(acct), f = normField(rawField);
     if (!f || !value) continue;
-    vaultSet(`${a}.${f}`, value);
+    data[a] ||= {};
+    data[a][f] = value;
     (summary[a] ||= []).push(f);
+    changed = true;
+  }
+
+  if (changed) {
+    writeVault(data);
+    fileCache = data;
   }
   return summary;
 
