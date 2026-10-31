@@ -164,11 +164,21 @@ export function importDocument(file, { defaultAccount } = {}) {
   }
 
   const summary = {};
+  // Optimize: Batch processing updates in memory and write the file only once.
+  // This turns O(N) file encryptions/writes into O(1) during document imports.
+  const data = fs.existsSync(VAULT_FILE) ? fileVault() : {};
+  let modified = false;
   for (const [acct, rawField, value] of triples) {
     const a = slug(acct), f = normField(rawField);
     if (!f || !value) continue;
-    vaultSet(`${a}.${f}`, value);
+    data[a] ||= {};
+    data[a][f] = value;
     (summary[a] ||= []).push(f);
+    modified = true;
+  }
+  if (modified) {
+    writeVault(data);
+    fileCache = data;
   }
   return summary;
 
