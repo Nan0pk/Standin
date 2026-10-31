@@ -163,7 +163,7 @@ export function importDocument(file, { defaultAccount } = {}) {
     }
   }
 
-  const summary = {};
+  const summary = Object.create(null);
   for (const [acct, rawField, value] of triples) {
     const a = slug(acct), f = normField(rawField);
     if (!f || !value) continue;
@@ -190,7 +190,13 @@ export function vaultList() {
 function split(dotted) {
   const i = dotted.indexOf('.');
   if (i < 0) throw new Error(`bad secret ref "${dotted}", expected account.field`);
-  return [dotted.slice(0, i), dotted.slice(i + 1)];
+  const acct = dotted.slice(0, i);
+  const field = dotted.slice(i + 1);
+  // Security concern: prevent prototype pollution from user-provided dot-notated secrets
+  if (acct === '__proto__' || acct === 'constructor' || acct === 'prototype' || field === '__proto__' || field === 'constructor' || field === 'prototype') {
+    throw new Error(`invalid secret ref "${dotted}"`);
+  }
+  return [acct, field];
 }
 
 // RFC 6238 TOTP from a base32 secret
