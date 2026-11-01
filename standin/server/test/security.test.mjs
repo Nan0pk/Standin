@@ -66,3 +66,36 @@ test('HTTP responses redact a vault value echoed by the remote service', async (
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('runner prevents path traversal in download steps', async () => {
+  const { runTask } = await import('../src/runner.mjs');
+  const task = {
+    profile: 'test',
+    steps: [
+      {
+        download: {
+           click: '#download-btn',
+           as: '../../../../../../../../../../../../../tmp/hacked-standin.txt'
+        }
+      }
+    ]
+  };
+
+  const htmlPath = path.join(tmp, 'index.html');
+  fs.writeFileSync(htmlPath, `
+    <html>
+      <body>
+        <a id="download-btn" href="data:text/plain;charset=utf-8,HACKED" download="test.txt">Download</a>
+      </body>
+    </html>
+  `);
+
+  task.url = 'file://' + htmlPath;
+
+  const runs = path.join(tmp, 'runs');
+  const out = await runTask(task, { outDir: runs });
+
+  assert.equal(out.ok, false);
+  assert.match(out.error, /path traversal detected/);
+  assert.equal(fs.existsSync('/tmp/hacked-standin.txt'), false);
+});
