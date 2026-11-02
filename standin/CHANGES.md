@@ -2,6 +2,19 @@
 
 Brief log of what was added and subtracted as better projects are absorbed.
 
+## 0.4.0 (continued)
+
+### Added
+- Pluggable browser backend. `STANDIN_CDP_ENDPOINT` points Playwright MCP at any
+  CDP-speaking browser — Lightpanda, Steel, Browserbase, a patchright-patched
+  Chromium — with no code change, because the credential tools only ever need a
+  page. `STANDIN_CDP_HEADERS` carries auth for a remote grid.
+- Recovered the elicitation commit, which the squash-merge of PR #10 had dropped.
+
+### Assessed, not adopted
+- Lightpanda 1.0.2 — see the assessment in the commit message. Kept as an
+  optional backend rather than the default.
+
 ## 0.4.0
 
 ### Added

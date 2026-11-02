@@ -24,13 +24,27 @@ import { openBridge } from './browserbridge.mjs';
 const sessions = new Map();
 let activeProfile = null;
 
-function bridgeConfig() {
-  return {
+// The browser backend is pluggable. By default Playwright MCP launches its own
+// Chromium. Point STANDIN_CDP_ENDPOINT at any CDP-speaking browser — Lightpanda,
+// Steel, Browserbase, a patchright-patched Chromium, a remote grid — and the
+// credential tools keep working unchanged, because they only ever need a page.
+export function bridgeConfig() {
+  const config = {
     // Values minted at runtime that must never reach the model in a URL. This is
     // a convenience layer; the authoritative redaction is the dynamic one below.
     redactUrlParams: ['access_token', 'id_token', 'code', 'token', 'session_id', 'sid', 'sig', 'signature', 'api_key'],
     outputDir: path.join(HOME, 'output'),
   };
+  const cdpEndpoint = process.env.STANDIN_CDP_ENDPOINT;
+  if (cdpEndpoint) {
+    config.browser = { cdpEndpoint };
+    const headers = process.env.STANDIN_CDP_HEADERS;
+    if (headers) {
+      try { config.browser.cdpHeaders = JSON.parse(headers); }
+      catch { throw new Error('STANDIN_CDP_HEADERS must be a JSON object'); }
+    }
+  }
+  return config;
 }
 
 function sessionFor(profile) {
