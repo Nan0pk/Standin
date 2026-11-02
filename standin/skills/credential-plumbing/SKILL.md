@@ -36,10 +36,11 @@ Check `vault_list` before asking for anything.
 
 ## Working a page
 
-`browser_open` → read the snapshot (it lists visible text plus every element with a selector) →
-act with `browser_click` / `browser_type` / `browser_fill_secret` → snapshot again. Use the
-selectors from the snapshot; never invent them. `browser_wait` for slow steps, `browser_screenshot`
-when something looks wrong. Use one profile per site, named after the site.
+`standin_session` (one per site, named after the site) → `browser_navigate` → `browser_snapshot`
+(it lists visible text plus every element with a reference) → act with `browser_click` /
+`browser_type` / `browser_fill_secret` → snapshot again. Pass the element reference from the
+snapshot as `target` — a unique CSS selector also works. Never invent a target; take it from a
+snapshot. `browser_wait_for` for slow steps, `browser_take_screenshot` when something looks wrong.
 
 ## Moving an API key from A to B
 

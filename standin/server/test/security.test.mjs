@@ -38,8 +38,20 @@ test('MCP server starts and lists its tools', async () => {
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.ok(tools.some(tool => tool.name === 'browser_open'));
-    assert.ok(tools.some(tool => tool.name === 'vault_import_document'));
+    const names = tools.map(t => t.name);
+    // standin's own credential tools
+    assert.ok(names.includes('vault_import_document'), 'missing vault_import_document');
+    assert.ok(names.includes('browser_fill_secret'), 'missing browser_fill_secret');
+    assert.ok(names.includes('browser_capture_secret'), 'missing browser_capture_secret');
+    assert.ok(names.includes('standin_session'), 'missing standin_session');
+    // browser plumbing now comes from the bridged Playwright MCP
+    assert.ok(names.includes('browser_navigate'), 'bridged browser_navigate missing');
+    assert.ok(names.includes('browser_snapshot'), 'bridged browser_snapshot missing');
+    // tools that would let the model read a secret back must never be advertised
+    for (const banned of ['browser_run_code_unsafe', 'browser_storage_state', 'browser_cookie_get',
+                          'browser_cookie_list', 'browser_localstorage_get', 'browser_sessionstorage_get']) {
+      assert.ok(!names.includes(banned), `${banned} must not be exposed`);
+    }
   } finally { await client.close(); }
 });
 
