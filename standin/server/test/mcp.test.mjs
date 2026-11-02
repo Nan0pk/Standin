@@ -133,3 +133,20 @@ test('a failed bridged browser action surfaces as an error, not as page text', a
   await assert.rejects(() => call('browser_navigate', { url: 'https://x.invalid' }),
     /ERR_NAME_NOT_RESOLVED/);
 });
+
+test('the browser backend is switchable by configuration', async () => {
+  const { bridgeConfig } = await import('../src/mcp.mjs');
+  delete process.env.STANDIN_CDP_ENDPOINT;
+  assert.equal(bridgeConfig().browser, undefined, 'should default to the bundled Chromium');
+
+  process.env.STANDIN_CDP_ENDPOINT = 'ws://127.0.0.1:9222';
+  assert.equal(bridgeConfig().browser.cdpEndpoint, 'ws://127.0.0.1:9222');
+
+  process.env.STANDIN_CDP_HEADERS = '{"Authorization":"Bearer t"}';
+  assert.deepEqual(bridgeConfig().browser.cdpHeaders, { Authorization: 'Bearer t' });
+
+  process.env.STANDIN_CDP_HEADERS = 'not json';
+  assert.throws(() => bridgeConfig(), /must be a JSON object/);
+  delete process.env.STANDIN_CDP_ENDPOINT;
+  delete process.env.STANDIN_CDP_HEADERS;
+});

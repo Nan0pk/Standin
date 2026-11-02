@@ -24,13 +24,27 @@ import { openBridge } from './browserbridge.mjs';
 const sessions = new Map();
 let activeProfile = null;
 
-function bridgeConfig() {
-  return {
+// The browser backend is pluggable. By default Playwright MCP launches its own
+// Chromium. Point STANDIN_CDP_ENDPOINT at any CDP-speaking browser — Lightpanda,
+// Steel, Browserbase, a patchright-patched Chromium, a remote grid — and the
+// credential tools keep working unchanged, because they only ever need a page.
+export function bridgeConfig() {
+  const config = {
     // Values minted at runtime that must never reach the model in a URL. This is
     // a convenience layer; the authoritative redaction is the dynamic one below.
     redactUrlParams: ['access_token', 'id_token', 'code', 'token', 'session_id', 'sid', 'sig', 'signature', 'api_key'],
     outputDir: path.join(HOME, 'output'),
   };
+  const cdpEndpoint = process.env.STANDIN_CDP_ENDPOINT;
+  if (cdpEndpoint) {
+    config.browser = { cdpEndpoint };
+    const headers = process.env.STANDIN_CDP_HEADERS;
+    if (headers) {
+      try { config.browser.cdpHeaders = JSON.parse(headers); }
+      catch { throw new Error('STANDIN_CDP_HEADERS must be a JSON object'); }
+    }
+  }
+  return config;
 }
 
 function sessionFor(profile) {
@@ -93,6 +107,10 @@ const tools = [
     inputSchema: { type: 'object', properties: { ...TARGET }, required: ['target'] } },
   { name: 'browser_import_login', description: 'Copy the logged-in session out of the user\'s own Chrome/Edge/Brave into a standin session, so sites they already signed into by hand need no password at all. Try this before asking for credentials.',
     inputSchema: { type: 'object', properties: { profile: { type: 'string', description: 'standin session to create, e.g. the site name' }, chrome_profile: { type: 'string', description: 'e.g. "Default" or "Profile 1"' } }, required: ['profile'] } },
+  { name: 'standin_ask_user', description: 'Ask the user a question and block until they answer. Use for CAPTCHAs, SMS or email codes, payments, plan upgrades, deletions, and any choice only they can make. Do not use it for secret values — use vault_add for those.',
+    inputSchema: { type: 'object', properties: { question: { type: 'string' }, choices: { type: 'array', items: { type: 'string' }, description: 'optional list of options to offer' } }, required: ['question'] } },
+  { name: 'vault_add', description: 'Ask the user to type a secret straight into the vault. The value travels from them to the vault without ever passing through you. Use this instead of asking them to paste a password or key into the chat.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string', description: 'account.field, e.g. github.password' }, hint: { type: 'string', description: 'what to tell them you need' } }, required: ['ref'] } },
   { name: 'vault_set', description: 'Store a secret or a TOTP base32 seed. ref is "account.field".',
     inputSchema: { type: 'object', properties: { ref: { type: 'string' }, value: { type: 'string' } }, required: ['ref', 'value'] } },
   { name: 'vault_list', description: 'List which accounts/fields exist in the vault (never the values).', inputSchema: { type: 'object', properties: {} } },
@@ -116,6 +134,29 @@ const redact = value => [...sensitive].sort((a, b) => b.length - a.length)
   .reduce((text, secret) => text.replaceAll(secret, '[REDACTED]'), String(value));
 const ok = t => ({ content: [{ type: 'text', text: redact(t) }] });
 
+// --- asking the human ---------------------------------------------------------
+// MCP elicitation: the server prompts the person directly through their own
+// client. No local web server, no native dialog, no config file. This is the
+// simplest surface that keeps a secret or a decision entirely out of the model.
+let mcpServer = null;
+function attachServer(server) { mcpServer = server; }
+
+async function ask(message, field, { description, choices } = {}) {
+  if (!mcpServer?.getClientCapabilities?.()?.elicitation) {
+    throw new Error('this MCP client cannot prompt the user directly — ask them in the conversation instead');
+  }
+  const prop = { type: 'string', title: field, description: description || message };
+  if (choices?.length) prop.enum = choices;
+  const res = await mcpServer.elicitInput({
+    message,
+    requestedSchema: { type: 'object', properties: { [field]: prop }, required: [field] },
+  });
+  if (res.action !== 'accept') throw new Error(`the user ${res.action}d this request`);
+  const value = res.content?.[field];
+  if (value === undefined || value === '') throw new Error('the user did not provide a value');
+  return String(value);
+}
+
 // Playwright MCP returns a content array; scrub the text parts on the way out,
 // since a snapshot taken after browser_fill_secret can contain the value.
 const redactResult = result => ({
@@ -131,6 +172,18 @@ async function call(name, a = {}) {
     const s = await active();
     return ok(`active session is now "${s.profile}"` +
       (s.bridge ? ` (${s.bridge.tools.length} browser tools available).` : '.'));
+  }
+  if (name === 'standin_ask_user') {
+    const answer = await ask(a.question, 'answer', { choices: a.choices });
+    return ok(`the user replied: ${answer}`);
+  }
+  if (name === 'vault_add') {
+    const value = await ask(
+      `Enter the value for ${a.ref}.${a.hint ? ` ${a.hint}.` : ''} It goes straight into the vault and is never shown to the assistant.`,
+      'value', { description: 'secret value' });
+    vaultSet(a.ref, value);
+    remember(value);
+    return ok(`stored ${a.ref} (value hidden)`);
   }
   if (name === 'vault_set') { vaultSet(a.ref, a.value); remember(a.value); return ok(`stored ${a.ref}`); }
   if (name === 'vault_list') { return ok(vaultList().join('\n') || '(empty)'); }
@@ -229,9 +282,11 @@ export async function shutdown() {
 
 export { call, tools, sessions };
 
-// only speak MCP when launched as a server (so tests can import `call` directly)
-if (process.argv[1] && ['mcp.mjs', 'bootstrap.mjs'].includes(path.basename(process.argv[1]))) {
+// Build the MCP server. Exported so tests exercise the same wiring the
+// bootstrap uses, including elicitation.
+export function createMcpServer() {
   const server = new Server({ name: 'standin', version: '0.4.0' }, { capabilities: { tools: {} } });
+  attachServer(server);
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const s = await active();
     return { tools: [...tools, ...s.bridge.tools] };
@@ -240,5 +295,10 @@ if (process.argv[1] && ['mcp.mjs', 'bootstrap.mjs'].includes(path.basename(proce
     try { return await call(req.params.name, req.params.arguments || {}); }
     catch (e) { return { content: [{ type: 'text', text: redact(`error: ${e.message}`) }], isError: true }; }
   });
-  await server.connect(new StdioServerTransport());
+  return server;
+}
+
+// only speak MCP when launched as a server (so tests can import `call` directly)
+if (process.argv[1] && ['mcp.mjs', 'bootstrap.mjs'].includes(path.basename(process.argv[1]))) {
+  await createMcpServer().connect(new StdioServerTransport());
 }
