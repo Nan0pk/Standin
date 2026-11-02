@@ -207,8 +207,15 @@ async function call(name, a = {}) {
   // Everything else is Playwright MCP's: navigate, snapshot, click, type, wait,
   // screenshot, tabs, forms, files, network, cookies, verification, and more.
   const s = await active();
-  if (s.bridge.names.has(name)) return redactResult(await s.bridge.call(name, a));
-  throw new Error(`unknown tool ${name}`);
+  if (!s.bridge.names.has(name)) throw new Error(`unknown tool ${name}`);
+  const result = await s.bridge.call(name, a);
+  // A bridged failure arrives as a result, not an exception. Surface it as one,
+  // otherwise the agent reads the error text as page content and carries on.
+  if (result.isError) {
+    const detail = (result.content || []).map(c => c.text || '').join('\n').trim();
+    throw new Error(detail.replace(/^#+\s*Error\s*/i, '') || `browser tool ${name} failed`);
+  }
+  return redactResult(result);
 }
 
 export async function shutdown() {

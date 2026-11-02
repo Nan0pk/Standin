@@ -113,3 +113,23 @@ test('secrets used this session are redacted from bridged browser tool output', 
   assert.ok(!out.includes(leaked), `secret leaked through the bridge: ${out}`);
   assert.match(out, /\[REDACTED\]/);
 });
+
+test('a failed bridged browser action surfaces as an error, not as page text', async () => {
+  const fake = {
+    profile: 'error-test', ctx: null, page: null,
+    context: async () => null,
+    bridge: {
+      tools: [], withheld: [], names: new Set(['browser_navigate']),
+      call: async () => ({
+        isError: true,
+        content: [{ type: 'text', text: '### Error\nError: net::ERR_NAME_NOT_RESOLVED at https://x.invalid' }],
+      }),
+      close: async () => {},
+    },
+  };
+  fake.ready = async () => fake;
+  sessions.set('error-test', fake);
+  await call('standin_session', { profile: 'error-test' });
+  await assert.rejects(() => call('browser_navigate', { url: 'https://x.invalid' }),
+    /ERR_NAME_NOT_RESOLVED/);
+});
