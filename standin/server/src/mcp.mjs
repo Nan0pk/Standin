@@ -222,7 +222,9 @@ async function call(name, a = {}) {
     return ok(`saved ${file} — run it with: node src/cli.mjs run ${path.relative(process.cwd(), file)}`);
   }
   if (name === 'run_task') {
-    const file = path.join(process.cwd(), 'tasks', a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    // SECURITY: prevent path traversal out of the tasks directory
+    const safeName = a.name.replace(/[^\w.-]/g, '_');
+    const file = path.join(process.cwd(), 'tasks', safeName.endsWith('.yaml') ? safeName : `${safeName}.yaml`);
     const task = loadTask(file);
     const rows = a.data ? readRows(a.data) : [{}];
     const out = [];
