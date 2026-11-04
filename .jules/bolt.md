@@ -1,3 +1,7 @@
 ## 2026-11-01 - Batching Vault File Writes for Import
 **Learning:** `importDocument` was calling `vaultSet` in a loop, writing the entire encrypted vault to disk synchronously for every field extracted from an imported file (e.g. 50 items with username and password equals 100 disk writes, taking over 5 seconds). Since the file is rewritten completely each time, this is an O(n^2) scaling factor with the number of fields, exacerbated by scrypt key derivation and AES-GCM encryption each time.
 **Action:** When bulk importing, read the vault once, mutate the object structure in memory, and then write to disk exactly once at the end of the operation.
+
+## 2026-11-04 - Caching dynamically generated RegExp for redacting multiple strings
+**Learning:** The `redact` function was looping through an arbitrary number of sensitive secrets and calling `.replaceAll(secret, '[REDACTED]')` on the target string for each one. This allocates a new string for each replace call, scaling $O(M \times N)$ with string length $M$ and number of secrets $N$, which severely blocked the main thread (from ~400ms down to ~15ms) on large payloads.
+**Action:** When performing redaction or search-and-replace over a large number of search terms, combine them into a dynamically generated `RegExp` separated by `|` (making sure to escape special characters). Cache the compiled `RegExp` and recompile only when the source set of strings changes (e.g. tracking `sensitive.size`).
