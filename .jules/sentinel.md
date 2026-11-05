@@ -2,3 +2,7 @@
 **Vulnerability:** The `runTask` execution logic in `runner.mjs` allowed arbitrary file writes outside of the sandbox via relative path traversals (e.g. `../../etc/passwd`) or absolute paths when evaluating task configuration payload arguments (`as` for download, and `arg` for screenshot).
 **Learning:** `path.join(base, user_input)` combined with download functionality without verifying absolute prefix containment leads to path traversal.
 **Prevention:** Use `path.resolve` to calculate the absolute canonical path, and explicitly verify it is contained in the target sandbox directory by asserting `dest.startsWith(path.resolve(runDir) + path.sep)`. Throw an error otherwise.
+## 2024-11-05 - Path Traversal Vulnerabilities
+**Vulnerability:** Path traversal vulnerabilities allowed attackers to read or write arbitrary files by using `../../` in profile names, Chrome profile paths, or task names in MCP server calls (`run_task`, `importChromeSession`, and `openContext`).
+**Learning:** These APIs used `path.join` without verifying that the resolved path stayed within the intended base directory. This allowed directory traversal.
+**Prevention:** Use `path.resolve` to resolve the full path, and then verify that it starts with the intended base directory path plus the path separator (`if (!resolvedPath.startsWith(path.resolve(baseDir) + path.sep))`).
