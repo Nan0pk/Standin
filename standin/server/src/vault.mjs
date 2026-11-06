@@ -204,7 +204,13 @@ export function vaultList() {
 function split(dotted) {
   const i = dotted.indexOf('.');
   if (i < 0) throw new Error(`bad secret ref "${dotted}", expected account.field`);
-  return [dotted.slice(0, i), dotted.slice(i + 1)];
+  const acct = dotted.slice(0, i);
+  const field = dotted.slice(i + 1);
+  if (acct === '__proto__' || acct === 'constructor' || acct === 'prototype' ||
+      field === '__proto__' || field === 'constructor' || field === 'prototype') {
+    throw new Error('invalid secret ref: restricted property name');
+  }
+  return [acct, field];
 }
 
 // RFC 6238 TOTP from a base32 secret
