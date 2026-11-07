@@ -130,8 +130,22 @@ const tools = [
 // This cannot identify previously unknown secrets displayed by a page.
 const sensitive = new Set();
 const remember = value => { if (typeof value === 'string' && value) sensitive.add(value); return value; };
-const redact = value => [...sensitive].sort((a, b) => b.length - a.length)
-  .reduce((text, secret) => text.replaceAll(secret, '[REDACTED]'), String(value));
+
+// ⚡ Bolt: Cache compiled RegExp instead of O(N) replaces on every call
+// Drastically speeds up redaction of large tool outputs (like DOM snapshots).
+let sensitiveSize = 0;
+let redactRegex = null;
+const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const redact = value => {
+  if (sensitive.size === 0) return String(value);
+  if (sensitive.size !== sensitiveSize) {
+    const sorted = [...sensitive].sort((a, b) => b.length - a.length);
+    redactRegex = new RegExp(sorted.map(escapeRegex).join('|'), 'g');
+    sensitiveSize = sensitive.size;
+  }
+  return String(value).replace(redactRegex, '[REDACTED]');
+};
+
 const ok = t => ({ content: [{ type: 'text', text: redact(t) }] });
 
 // --- asking the human ---------------------------------------------------------
