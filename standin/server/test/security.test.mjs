@@ -79,6 +79,14 @@ test('HTTP responses redact a vault value echoed by the remote service', async (
   }
 });
 
+test('mcp run_task prevents path traversal', async () => {
+  const { call } = await import('../src/mcp.mjs');
+  await assert.rejects(
+    () => call('run_task', { name: '../../../../../../tmp/hacked.yaml' }),
+    /path traversal detected/
+  );
+});
+
 test('runner prevents path traversal in download steps', async () => {
   const { runTask } = await import('../src/runner.mjs');
   const task = {

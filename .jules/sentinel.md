@@ -2,3 +2,8 @@
 **Vulnerability:** The `runTask` execution logic in `runner.mjs` allowed arbitrary file writes outside of the sandbox via relative path traversals (e.g. `../../etc/passwd`) or absolute paths when evaluating task configuration payload arguments (`as` for download, and `arg` for screenshot).
 **Learning:** `path.join(base, user_input)` combined with download functionality without verifying absolute prefix containment leads to path traversal.
 **Prevention:** Use `path.resolve` to calculate the absolute canonical path, and explicitly verify it is contained in the target sandbox directory by asserting `dest.startsWith(path.resolve(runDir) + path.sep)`. Throw an error otherwise.
+
+## 2026-11-08 - Path Traversal in MCP run_task task file loading
+**Vulnerability:** The `run_task` tool in `standin/server/src/mcp.mjs` allowed arbitrary YAML file loading outside of the intended `tasks` directory via relative path traversals (e.g. `../../hacked.yaml`) in the `a.name` parameter.
+**Learning:** `path.join(base, user_input)` combined with file loading without verifying absolute prefix containment leads to path traversal.
+**Prevention:** Use `path.resolve` to calculate the absolute canonical path, and explicitly verify it is contained in the target sandbox directory by asserting `file.startsWith(dir + path.sep)`. Throw an error otherwise.
