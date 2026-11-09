@@ -51,10 +51,31 @@ once per row of a spreadsheet if you want, or on a schedule.
 
 ## Tools it adds
 
-`browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_fill_secret`,
-`browser_fill_totp`, `browser_capture_secret`, `browser_read`, `browser_wait`,
-`browser_screenshot`, `browser_import_login`, `vault_import_document`, `vault_set`, `vault_list`,
-`vault_forget`, `http_request`, `save_task`, `run_task`.
+Standin does not implement browser plumbing. Navigation, clicking, typing, snapshots,
+screenshots, tabs, forms, file uploads and network inspection come from Microsoft's
+[Playwright MCP](https://github.com/microsoft/playwright-mcp) (Apache-2.0), bridged in process so
+that the credential tools operate on the same browser the agent is driving.
+
+Standin's own tools are the credential layer:
+
+`standin_session`, `standin_ask_user`, `vault_add`, `browser_fill_secret`, `browser_fill_totp`,
+`browser_capture_secret`, `browser_read`, `browser_import_login`, `vault_set`, `vault_list`,
+`vault_import_document`, `vault_forget`, `http_request`, `save_task`, `run_task`.
+
+Use one `standin_session` per site so its login persists. Elements are addressed the same way in
+both tool sets: either a reference from `browser_snapshot` (like `e12`) or a unique CSS selector.
+
+Tools that would let the model read a secret back — arbitrary code execution, and cookie /
+localStorage / sessionStorage readers — are deliberately not advertised.
+
+## Talking to you
+
+Two tools go straight to you rather than through the model. `standin_ask_user` stops and asks
+when it hits a CAPTCHA, an SMS or email code, a payment, or a deletion — and waits for your
+answer. `vault_add` opens a prompt for you to type a password or key, and the value goes from
+you into the vault without the assistant ever seeing it. Both use MCP elicitation, so there is
+nothing to install or configure; if your client does not support it, standin says so and asks in
+the conversation instead.
 
 ## Checking it yourself
 

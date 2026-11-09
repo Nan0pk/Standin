@@ -12,7 +12,7 @@ delete process.env.STANDIN_VAULT_FILE;
 process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 
 const { importDocument, getSecret, vaultList, vaultForget } = await import('../src/vault.mjs');
-const { importChromeSession } = await import('../src/browser.mjs');
+const { importChromeSession, openContext } = await import('../src/browser.mjs');
 
 test('zero config: vault key is created on its own with 0600 perms', () => {
   importDocument(write('a.env', 'ACME_PASSWORD=hunter2\n'));
@@ -80,6 +80,22 @@ test('imports an existing browser session into a standin profile', () => {
   assert.ok(fs.existsSync(path.join(dest, 'Default', 'Network', 'Cookies')));
   assert.ok(fs.existsSync(path.join(dest, 'Local State')));
   assert.ok(fs.existsSync(path.join(dest, '.standin-use-chrome')), 'should remember to launch real Chrome');
+});
+
+test('browser profiles reject paths outside their configured directories', async () => {
+  const src = path.join(tmp, 'chrome');
+  fs.mkdirSync(path.join(src, 'Default'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'Default', 'Cookies'), 'synthetic-cookie-store');
+  const before = fs.readdirSync(tmp).sort();
+  for (const profile of ['../escaped', path.join(tmp, 'absolute-profile')]) {
+    assert.throws(() => importChromeSession(profile, { source: src }), /path traversal detected/);
+    await assert.rejects(() => openContext({ profile }), /path traversal detected/);
+  }
+  for (const chromeProfile of ['..', '../chrome-sibling', path.join(tmp, 'absolute-source')]) {
+    assert.throws(() => importChromeSession('safe', { source: src, chromeProfile }), /path traversal detected/);
+  }
+  assert.deepEqual(fs.readdirSync(tmp).sort(), before);
+  assert.equal(fs.existsSync(path.join(process.env.STANDIN_PROFILES, 'safe')), false);
 });
 
 function write(name, body) {
