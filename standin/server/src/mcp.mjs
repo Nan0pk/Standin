@@ -129,27 +129,18 @@ const tools = [
 // Protect values used during this server session from accidental echoing by pages or APIs.
 // This cannot identify previously unknown secrets displayed by a page.
 const sensitive = new Set();
-// ⚡ Bolt: Cache redaction regex to prevent O(n) array sorting and string replacement on every redaction
-// This reduces redaction time from ~5.3s to ~18ms (a ~300x speedup) on large outputs.
 let redactRegex = null;
 const remember = value => {
   if (typeof value === 'string' && value && !sensitive.has(value)) {
     sensitive.add(value);
-    redactRegex = null; // Invalidate cache
+    const sorted = [...sensitive].sort((a, b) => b.length - a.length);
+    // Escape regex characters and combine into a single alternation
+    // Alternations match in order, so longest match first correctly obscures nested secrets
+    redactRegex = new RegExp(sorted.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
   }
   return value;
 };
-const buildRegex = () => {
-  if (sensitive.size === 0) return null;
-  const sorted = [...sensitive].sort((a, b) => b.length - a.length);
-  const escaped = sorted.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  return new RegExp(escaped.join('|'), 'g');
-};
-const redact = value => {
-  if (sensitive.size === 0) return String(value);
-  if (!redactRegex) redactRegex = buildRegex();
-  return String(value).replace(redactRegex, '[REDACTED]');
-};
+const redact = value => redactRegex ? String(value).replace(redactRegex, '[REDACTED]') : String(value);
 const ok = t => ({ content: [{ type: 'text', text: redact(t) }] });
 
 // --- asking the human ---------------------------------------------------------
@@ -240,7 +231,9 @@ async function call(name, a = {}) {
     return ok(`saved ${file} — run it with: node src/cli.mjs run ${path.relative(process.cwd(), file)}`);
   }
   if (name === 'run_task') {
-    const file = path.join(process.cwd(), 'tasks', a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    const dir = path.resolve(process.cwd(), 'tasks');
+    const file = path.resolve(dir, a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    if (!file.startsWith(dir + path.sep)) throw new Error('path traversal detected in run_task');
     const task = loadTask(file);
     const rows = a.data ? readRows(a.data) : [{}];
     const out = [];
