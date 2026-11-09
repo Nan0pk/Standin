@@ -27,9 +27,11 @@ export function chromeUserData() {
 export function importChromeSession(profile, { chromeProfile = 'Default', source } = {}) {
   const src = source || chromeUserData();
   if (!src) throw new Error('no Chrome/Chromium/Edge/Brave profile found on this machine');
-  const from = path.join(src, chromeProfile);
+  const from = path.resolve(src, chromeProfile);
+  if (!from.startsWith(path.resolve(src) + path.sep)) throw new Error('path traversal detected');
   if (!fs.existsSync(from)) throw new Error(`no such browser profile: ${from}`);
-  const dest = path.join(PROFILES, profile);
+  const dest = path.resolve(PROFILES, profile);
+  if (!dest.startsWith(path.resolve(PROFILES) + path.sep)) throw new Error('path traversal detected');
   fs.mkdirSync(path.join(dest, 'Default', 'Network'), { recursive: true });
   const copy = (rel, to) => {
     const s = path.join(from, rel);
@@ -56,7 +58,8 @@ export function importChromeSession(profile, { chromeProfile = 'Default', source
 
 // One persistent profile per site => sign in once, stay signed in.
 export async function openContext({ profile = 'default', headed = false, downloadDir, useChrome } = {}) {
-  const dir = path.join(PROFILES, profile);
+  const dir = path.resolve(PROFILES, profile);
+  if (!dir.startsWith(path.resolve(PROFILES) + path.sep)) throw new Error('path traversal detected');
   fs.mkdirSync(dir, { recursive: true });
   const wantsChrome = useChrome ?? (fs.existsSync(path.join(dir, '.standin-use-chrome')) || process.env.STANDIN_BROWSER === 'chrome');
   const base = {
