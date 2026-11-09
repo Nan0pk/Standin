@@ -99,6 +99,33 @@ test('vault operations prevent prototype pollution', () => {
   assert.match(result2.stderr, /forbidden keys used/);
 });
 
+test('document imports reject reserved keys before changing the vault or its cache', () => {
+  const fixtures = [
+    '{"safe":{"password":"new"},"constructor":{"password":"synthetic"}}',
+    '{"safe":{"password":"new"},"prototype":{"password":"synthetic"}}',
+    '{"safe":{"password":"new","constructor":"synthetic"}}',
+    '{"safe":{"password":"new","prototype":"synthetic"}}',
+  ];
+  for (const fixture of fixtures) {
+    const code = `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      const { vaultSet, vaultList, importDocument } = await import(${JSON.stringify(moduleUrl)});
+      vaultSet('original.password', 'unchanged');
+      const before = fs.readFileSync(process.env.STANDIN_VAULT_FILE);
+      const file = ${JSON.stringify(path.join(tmp, 'reserved-keys.json'))};
+      fs.writeFileSync(file, ${JSON.stringify(fixture)});
+      assert.throws(() => importDocument(file), /forbidden keys used/);
+      assert.deepEqual(fs.readFileSync(process.env.STANDIN_VAULT_FILE), before);
+      assert.ok(!vaultList().some(row => row.startsWith('safe:')));
+      assert.equal(Object.hasOwn(Object, 'password'), false);
+      assert.equal(Object.hasOwn(Object.prototype, 'password'), false);
+    `;
+    const result = run(code, 'correct-passphrase');
+    assert.equal(result.status, 0, result.stderr);
+  }
+});
+
 test('mcp run_task prevents path traversal', async () => {
   const { call } = await import('../src/mcp.mjs');
   await assert.rejects(
