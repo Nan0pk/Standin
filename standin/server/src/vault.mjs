@@ -163,17 +163,19 @@ export function importDocument(file, { defaultAccount } = {}) {
     }
   }
 
-  const summary = {};
+  const summary = Object.create(null);
+  const entries = triples.map(([acct, rawField, value]) => [slug(acct), normField(rawField), value])
+    .filter(([, field, value]) => field && value);
+  // Validate the entire import before touching the live vault cache.
+  for (const [account, field] of entries) split(`${account}.${field}`);
+  if (entries.length === 0) return summary;
 
   // ⚡ Bolt: Batch vault writes during import to prevent O(n) synchronous disk writes and encryptions
   // This reduces import time for 50 records from >5s to ~100ms.
   const data = fs.existsSync(VAULT_FILE) ? fileVault() : {};
   let changed = false;
 
-  for (const [acct, rawField, value] of triples) {
-    const a = slug(acct), f = normField(rawField);
-    if (!f || !value) continue;
-
+  for (const [a, f, value] of entries) {
     data[a] ||= {};
     data[a][f] = value;
     changed = true;
@@ -206,9 +208,8 @@ function split(dotted) {
   if (i < 0) throw new Error(`bad secret ref "${dotted}", expected account.field`);
   const acct = dotted.slice(0, i);
   const field = dotted.slice(i + 1);
-  if (acct === '__proto__' || acct === 'constructor' || acct === 'prototype' ||
-      field === '__proto__' || field === 'constructor' || field === 'prototype') {
-    throw new Error('invalid secret ref: restricted property name');
+  if (['__proto__', 'constructor', 'prototype'].includes(acct) || ['__proto__', 'constructor', 'prototype'].includes(field)) {
+    throw new Error(`invalid secret ref "${dotted}", forbidden keys used`);
   }
   return [acct, field];
 }
