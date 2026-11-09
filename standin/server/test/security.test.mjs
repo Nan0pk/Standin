@@ -79,6 +79,24 @@ test('HTTP responses redact a vault value echoed by the remote service', async (
   }
 });
 
+test('vault operations prevent prototype pollution', () => {
+  const code = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('__proto__.polluted', 'yes');
+  `;
+  const result = run(code, 'correct-passphrase');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /forbidden keys used/);
+
+  const code2 = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('constructor.prototype', 'yes');
+  `;
+  const result2 = run(code2, 'correct-passphrase');
+  assert.notEqual(result2.status, 0);
+  assert.match(result2.stderr, /forbidden keys used/);
+});
+
 test('runner prevents path traversal in download steps', async () => {
   const { runTask } = await import('../src/runner.mjs');
   const task = {
