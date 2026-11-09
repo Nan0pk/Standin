@@ -129,23 +129,18 @@ const tools = [
 // Protect values used during this server session from accidental echoing by pages or APIs.
 // This cannot identify previously unknown secrets displayed by a page.
 const sensitive = new Set();
-const remember = value => { if (typeof value === 'string' && value) sensitive.add(value); return value; };
-
-// ⚡ Bolt: Redact secrets by dynamically building a regex to prevent O(N*M) sequential string passes.
-// This single-pass RegExp replacement reduces redaction time by ~12x vs String.prototype.replaceAll loops.
-let sensitiveRegex = null;
-let lastSize = -1;
-const redact = value => {
-  if (sensitive.size === 0) return String(value);
-  if (sensitive.size !== lastSize) {
+let redactRegex = null;
+const remember = value => {
+  if (typeof value === 'string' && value && !sensitive.has(value)) {
+    sensitive.add(value);
     const sorted = [...sensitive].sort((a, b) => b.length - a.length);
-    // Escape special regex characters
-    const escaped = sorted.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    sensitiveRegex = new RegExp(escaped.join('|'), 'g');
-    lastSize = sensitive.size;
+    // Escape regex characters and combine into a single alternation
+    // Alternations match in order, so longest match first correctly obscures nested secrets
+    redactRegex = new RegExp(sorted.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
   }
-  return String(value).replace(sensitiveRegex, '[REDACTED]');
+  return value;
 };
+const redact = value => redactRegex ? String(value).replace(redactRegex, '[REDACTED]') : String(value);
 const ok = t => ({ content: [{ type: 'text', text: redact(t) }] });
 
 // --- asking the human ---------------------------------------------------------
@@ -236,7 +231,9 @@ async function call(name, a = {}) {
     return ok(`saved ${file} — run it with: node src/cli.mjs run ${path.relative(process.cwd(), file)}`);
   }
   if (name === 'run_task') {
-    const file = path.join(process.cwd(), 'tasks', a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    const dir = path.resolve(process.cwd(), 'tasks');
+    const file = path.resolve(dir, a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    if (!file.startsWith(dir + path.sep)) throw new Error('path traversal detected in run_task');
     const task = loadTask(file);
     const rows = a.data ? readRows(a.data) : [{}];
     const out = [];
