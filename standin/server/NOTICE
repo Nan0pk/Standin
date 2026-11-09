@@ -1,0 +1,5 @@
+Standin embeds @playwright/mcp (Copyright (c) Microsoft Corporation),
+licensed under the Apache License, Version 2.0.
+A copy of that license is at node_modules/@playwright/mcp/LICENSE.
+No modifications are made to that package; it is used through its public
+createConnection() API.
