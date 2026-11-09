@@ -3,58 +3,74 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'standin-mcp-'));
+process.env.STANDIN_HOME = path.join(tmp, 'home');
 process.env.STANDIN_PASSPHRASE = 'test-pass';
 process.env.STANDIN_VAULT = 'file';
 process.env.STANDIN_VAULT_FILE = path.join(tmp, 'secrets.enc');
 process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 
-const { call, shutdown } = await import('../src/mcp.mjs');
-test.after(() => shutdown());
+const { call, shutdown, sessions } = await import('../src/mcp.mjs');
+const fixture = fs.readFileSync(path.join(here, 'fixtures', 'form.html'));
+const fixtureServer = http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end(fixture);
+});
+let FORM;
+test.before(async () => {
+  await new Promise(resolve => fixtureServer.listen(0, '127.0.0.1', resolve));
+  FORM = `http://127.0.0.1:${fixtureServer.address().port}/`;
+});
+test.after(async () => {
+  await shutdown();
+  await new Promise(resolve => fixtureServer.close(resolve));
+});
 const text = r => r.content.map(c => c.text || `[${c.type}]`).join('\n');
-const FORM = 'file://' + path.join(here, 'fixtures', 'form.html');
 
 test('agent flow: open, sign in with hidden secrets, 2FA, capture a key', async () => {
   await call('vault_set', { ref: 'example.username', value: 'j@example.com' });
   await call('vault_set', { ref: 'example.password', value: 'sup3r-secret' });
   await call('vault_set', { ref: 'example.totp', value: 'JBSWY3DPEHPK3PXP' });
 
-  const snap = text(await call('browser_open', { url: FORM, profile: 'mcp-test', headed: false }));
-  assert.match(snap, /INTERACTIVE ELEMENTS/);
-  assert.match(snap, /#username/);
+  await call('standin_session', { profile: 'mcp-test', headed: false });
+  await call('browser_navigate', { url: FORM });
+  const snap = text(await call('browser_snapshot', {}));
+  assert.match(snap, /Sign in/);
 
-  const filled = text(await call('browser_fill_secret', { selector: '#username', ref: 'example.username' }));
+  const filled = text(await call('browser_fill_secret', { target: '#username', ref: 'example.username' }));
   assert.ok(!filled.includes('j@example.com'), 'secret leaked into tool output');
-  const pw = text(await call('browser_fill_secret', { selector: '#password', ref: 'example.password' }));
+  const pw = text(await call('browser_fill_secret', { target: '#password', ref: 'example.password' }));
   assert.ok(!pw.includes('sup3r-secret'), 'password leaked into tool output');
 
-  await call('browser_click', { selector: '#signin' });
-  await call('browser_wait', { selector: '#otp' });
-  const otp = text(await call('browser_fill_totp', { selector: '#otp', account: 'example' }));
+  await call('browser_click', { target: '#signin', element: 'Sign in button' });
+  const otp = text(await call('browser_fill_totp', { target: '#otp', account: 'example' }));
   assert.ok(!/\b\d{6}\b/.test(otp), '2FA code leaked into tool output');
-  await call('browser_click', { selector: '#verify' });
+  await call('browser_click', { target: '#verify', element: 'Verify button' });
 
-  await call('browser_type', { selector: '#invoice', value: 'KEY-LIVE-123' });
-  await call('browser_type', { selector: '#amount', value: '10' });
-  await call('browser_type', { selector: 'select#currency', value: 'EUR' });
-  await call('browser_type', { selector: '#agree', value: 'true' });
-  await call('browser_click', { selector: '#submit' });
+  await call('browser_type', { target: '#invoice', text: 'KEY-LIVE-123', element: '#invoice' });
+  await call('browser_type', { target: '#amount', text: '10', element: '#amount' });
+  await call('browser_select_option', { target: 'select#currency', values: ['EUR'], element: 'select#currency' });
+  await call('browser_click', { target: '#agree', element: '#agree' });
+  await call('browser_click', { target: '#submit', element: 'Submit button' });
 
-  const conf = text(await call('browser_read', { selector: '#confirmation' }));
+  const conf = text(await call('browser_read', { target: '#confirmation' }));
   assert.equal(conf, 'CONF-KEY-LIVE-123-EUR-10');
 
-  const cap = text(await call('browser_capture_secret', { selector: '#confirmation', ref: 'example.api_key' }));
+  const cap = text(await call('browser_capture_secret', { target: '#confirmation', ref: 'example.api_key' }));
   assert.ok(!cap.includes('KEY-LIVE-123'), 'captured key leaked into tool output');
   assert.match(text(await call('vault_list', {})), /api_key/);
 
-  const shot = await call('browser_screenshot', {});
-  assert.equal(shot.content[0].type, 'image');
+  const shot = await call('browser_take_screenshot', { scale: 'css' });
+  assert.ok(shot.content.some(c => c.type === 'image'));
 });
 
 test('http_request substitutes vault refs without exposing them', async () => {
+  // Set up its own state rather than relying on the capture in the previous test.
+  await call('vault_set', { ref: 'example.api_key', value: 'KEY-LIVE-123' });
   const http = await import('node:http');
   const seen = [];
   const srv = http.createServer((req, res) => {
@@ -82,4 +98,68 @@ test('save_task writes a runnable task file', async () => {
   const out = text(await call('save_task', { name: 'demo', yaml }));
   assert.match(out, /saved/);
   assert.ok(fs.existsSync(path.join(tmp, 'tasks', 'demo.yaml')));
+});
+
+test('secrets used this session are redacted from bridged browser tool output', async () => {
+  // A page snapshot taken after filling a password can echo it back. The bridge
+  // is stubbed here; call() and the redaction wrapper are the real ones.
+  const leaked = 'BRIDGED-SECRET-999';
+  await call('vault_set', { ref: 'example.session_secret', value: leaked });
+  await call('browser_fill_secret', { target: '#nope', ref: 'example.session_secret' })
+    .catch(() => {}); // no browser here; this only registers the value as sensitive
+
+  const fake = {
+    profile: 'redact-test', ctx: null, page: null,
+    context: async () => null,
+    bridge: {
+      tools: [], withheld: [],
+      names: new Set(['browser_snapshot']),
+      call: async () => ({ content: [{ type: 'text', text: `textbox contains ${leaked}` }] }),
+      close: async () => {},
+    },
+  };
+  fake.ready = async () => fake;
+  sessions.set('redact-test', fake);
+
+  await call('standin_session', { profile: 'redact-test' });
+  const out = text(await call('browser_snapshot', {}));
+  assert.ok(!out.includes(leaked), `secret leaked through the bridge: ${out}`);
+  assert.match(out, /\[REDACTED\]/);
+});
+
+test('a failed bridged browser action surfaces as an error, not as page text', async () => {
+  const fake = {
+    profile: 'error-test', ctx: null, page: null,
+    context: async () => null,
+    bridge: {
+      tools: [], withheld: [], names: new Set(['browser_navigate']),
+      call: async () => ({
+        isError: true,
+        content: [{ type: 'text', text: '### Error\nError: net::ERR_NAME_NOT_RESOLVED at https://x.invalid' }],
+      }),
+      close: async () => {},
+    },
+  };
+  fake.ready = async () => fake;
+  sessions.set('error-test', fake);
+  await call('standin_session', { profile: 'error-test' });
+  await assert.rejects(() => call('browser_navigate', { url: 'https://x.invalid' }),
+    /ERR_NAME_NOT_RESOLVED/);
+});
+
+test('the browser backend is switchable by configuration', async () => {
+  const { bridgeConfig } = await import('../src/mcp.mjs');
+  delete process.env.STANDIN_CDP_ENDPOINT;
+  assert.equal(bridgeConfig().browser, undefined, 'should default to the bundled Chromium');
+
+  process.env.STANDIN_CDP_ENDPOINT = 'ws://127.0.0.1:9222';
+  assert.equal(bridgeConfig().browser.cdpEndpoint, 'ws://127.0.0.1:9222');
+
+  process.env.STANDIN_CDP_HEADERS = '{"Authorization":"Bearer t"}';
+  assert.deepEqual(bridgeConfig().browser.cdpHeaders, { Authorization: 'Bearer t' });
+
+  process.env.STANDIN_CDP_HEADERS = 'not json';
+  assert.throws(() => bridgeConfig(), /must be a JSON object/);
+  delete process.env.STANDIN_CDP_ENDPOINT;
+  delete process.env.STANDIN_CDP_HEADERS;
 });
