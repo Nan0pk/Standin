@@ -94,18 +94,16 @@ export async function runTask(task, { data = {}, dry = false, headed = false, ou
             page.waitForEvent('download'),
             page.locator(resolve(arg.click, data)).first().click(),
           ]);
-          // Security: Prevent path traversal by ensuring the resolved path is within runDir
           const dest = path.resolve(runDir, arg.as ? resolve(arg.as, data) : dl.suggestedFilename());
-          if (!dest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('Security: Path traversal detected');
+          if (!dest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('path traversal detected in download');
           await dl.saveAs(dest);
           extracted[arg.name || 'download'] = dest;
           break;
         }
         case 'screenshot': {
-          // Security: Prevent path traversal by ensuring the resolved path is within runDir
-          const shotDest = path.resolve(runDir, `${arg || 'shot'}.png`);
-          if (!shotDest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('Security: Path traversal detected');
-          await page.screenshot({ path: shotDest, fullPage: true });
+          const dest = path.resolve(runDir, `${arg || 'shot'}.png`);
+          if (!dest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('path traversal detected in screenshot');
+          await page.screenshot({ path: dest, fullPage: true });
           break;
         }
         case 'ai':
