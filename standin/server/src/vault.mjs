@@ -204,7 +204,12 @@ export function vaultList() {
 function split(dotted) {
   const i = dotted.indexOf('.');
   if (i < 0) throw new Error(`bad secret ref "${dotted}", expected account.field`);
-  return [dotted.slice(0, i), dotted.slice(i + 1)];
+  const acct = dotted.slice(0, i);
+  const field = dotted.slice(i + 1);
+  if (['__proto__', 'constructor', 'prototype'].includes(acct) || ['__proto__', 'constructor', 'prototype'].includes(field)) {
+    throw new Error(`invalid secret ref "${dotted}", forbidden keys used`);
+  }
+  return [acct, field];
 }
 
 // RFC 6238 TOTP from a base32 secret
