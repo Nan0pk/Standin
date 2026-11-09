@@ -3,19 +3,33 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'standin-mcp-'));
+process.env.STANDIN_HOME = path.join(tmp, 'home');
 process.env.STANDIN_PASSPHRASE = 'test-pass';
 process.env.STANDIN_VAULT = 'file';
 process.env.STANDIN_VAULT_FILE = path.join(tmp, 'secrets.enc');
 process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 
 const { call, shutdown, sessions } = await import('../src/mcp.mjs');
-test.after(() => shutdown());
+const fixture = fs.readFileSync(path.join(here, 'fixtures', 'form.html'));
+const fixtureServer = http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end(fixture);
+});
+let FORM;
+test.before(async () => {
+  await new Promise(resolve => fixtureServer.listen(0, '127.0.0.1', resolve));
+  FORM = `http://127.0.0.1:${fixtureServer.address().port}/`;
+});
+test.after(async () => {
+  await shutdown();
+  await new Promise(resolve => fixtureServer.close(resolve));
+});
 const text = r => r.content.map(c => c.text || `[${c.type}]`).join('\n');
-const FORM = 'file://' + path.join(here, 'fixtures', 'form.html');
 
 test('agent flow: open, sign in with hidden secrets, 2FA, capture a key', async () => {
   await call('vault_set', { ref: 'example.username', value: 'j@example.com' });
@@ -33,15 +47,14 @@ test('agent flow: open, sign in with hidden secrets, 2FA, capture a key', async 
   assert.ok(!pw.includes('sup3r-secret'), 'password leaked into tool output');
 
   await call('browser_click', { target: '#signin', element: 'Sign in button' });
-  await call('browser_wait_for', { text: '6-digit code' });
   const otp = text(await call('browser_fill_totp', { target: '#otp', account: 'example' }));
   assert.ok(!/\b\d{6}\b/.test(otp), '2FA code leaked into tool output');
   await call('browser_click', { target: '#verify', element: 'Verify button' });
 
   await call('browser_type', { target: '#invoice', text: 'KEY-LIVE-123', element: '#invoice' });
   await call('browser_type', { target: '#amount', text: '10', element: '#amount' });
-  await call('browser_type', { target: 'select#currency', text: 'EUR', element: 'select#currency' });
-  await call('browser_type', { target: '#agree', text: 'true', element: '#agree' });
+  await call('browser_select_option', { target: 'select#currency', values: ['EUR'], element: 'select#currency' });
+  await call('browser_click', { target: '#agree', element: '#agree' });
   await call('browser_click', { target: '#submit', element: 'Submit button' });
 
   const conf = text(await call('browser_read', { target: '#confirmation' }));
@@ -51,7 +64,7 @@ test('agent flow: open, sign in with hidden secrets, 2FA, capture a key', async 
   assert.ok(!cap.includes('KEY-LIVE-123'), 'captured key leaked into tool output');
   assert.match(text(await call('vault_list', {})), /api_key/);
 
-  const shot = await call('browser_take_screenshot', {});
+  const shot = await call('browser_take_screenshot', { scale: 'css' });
   assert.ok(shot.content.some(c => c.type === 'image'));
 });
 

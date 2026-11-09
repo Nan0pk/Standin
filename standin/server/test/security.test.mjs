@@ -9,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'standin-security-'));
+process.env.STANDIN_HOME = path.join(tmp, 'home');
+process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 const vault = path.join(tmp, 'vault.enc');
 const moduleUrl = new URL('../src/vault.mjs', import.meta.url).href;
 const run = (code, pass) => spawnSync(process.execPath, ['--input-type=module', '-e', code], {
@@ -77,6 +79,24 @@ test('HTTP responses redact a vault value echoed by the remote service', async (
     await client.close();
     await new Promise(resolve => server.close(resolve));
   }
+});
+
+test('vault operations prevent prototype pollution', () => {
+  const code = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('__proto__.polluted', 'yes');
+  `;
+  const result = run(code, 'correct-passphrase');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /forbidden keys used/);
+
+  const code2 = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('constructor.prototype', 'yes');
+  `;
+  const result2 = run(code2, 'correct-passphrase');
+  assert.notEqual(result2.status, 0);
+  assert.match(result2.stderr, /forbidden keys used/);
 });
 
 test('mcp run_task prevents path traversal', async () => {
