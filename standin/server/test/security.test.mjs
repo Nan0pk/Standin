@@ -9,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'standin-security-'));
+process.env.STANDIN_HOME = path.join(tmp, 'home');
+process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 const vault = path.join(tmp, 'vault.enc');
 const moduleUrl = new URL('../src/vault.mjs', import.meta.url).href;
 const run = (code, pass) => spawnSync(process.execPath, ['--input-type=module', '-e', code], {
@@ -95,6 +97,14 @@ test('vault operations prevent prototype pollution', () => {
   const result2 = run(code2, 'correct-passphrase');
   assert.notEqual(result2.status, 0);
   assert.match(result2.stderr, /forbidden keys used/);
+});
+
+test('mcp run_task prevents path traversal', async () => {
+  const { call } = await import('../src/mcp.mjs');
+  await assert.rejects(
+    () => call('run_task', { name: '../../../../../../tmp/hacked.yaml' }),
+    /path traversal detected/
+  );
 });
 
 test('runner prevents path traversal in download steps', async () => {

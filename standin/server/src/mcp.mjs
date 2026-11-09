@@ -231,7 +231,9 @@ async function call(name, a = {}) {
     return ok(`saved ${file} — run it with: node src/cli.mjs run ${path.relative(process.cwd(), file)}`);
   }
   if (name === 'run_task') {
-    const file = path.join(process.cwd(), 'tasks', a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    const dir = path.resolve(process.cwd(), 'tasks');
+    const file = path.resolve(dir, a.name.endsWith('.yaml') ? a.name : `${a.name}.yaml`);
+    if (!file.startsWith(dir + path.sep)) throw new Error('path traversal detected in run_task');
     const task = loadTask(file);
     const rows = a.data ? readRows(a.data) : [{}];
     const out = [];
