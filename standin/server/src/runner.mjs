@@ -94,13 +94,18 @@ export async function runTask(task, { data = {}, dry = false, headed = false, ou
             page.waitForEvent('download'),
             page.locator(resolve(arg.click, data)).first().click(),
           ]);
-          const dest = path.join(runDir, arg.as ? resolve(arg.as, data) : dl.suggestedFilename());
+          const dest = path.resolve(runDir, arg.as ? resolve(arg.as, data) : dl.suggestedFilename());
+          if (!dest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('path traversal detected in download');
           await dl.saveAs(dest);
           extracted[arg.name || 'download'] = dest;
           break;
         }
-        case 'screenshot':
-          await page.screenshot({ path: path.join(runDir, `${arg || 'shot'}.png`), fullPage: true }); break;
+        case 'screenshot': {
+          const dest = path.resolve(runDir, `${arg || 'shot'}.png`);
+          if (!dest.startsWith(path.resolve(runDir) + path.sep)) throw new Error('path traversal detected in screenshot');
+          await page.screenshot({ path: dest, fullPage: true });
+          break;
+        }
         case 'ai':
           await aiAct(page, resolve(arg, data)); break;
         case 'if': {
