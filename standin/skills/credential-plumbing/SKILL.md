@@ -28,18 +28,20 @@ The user does not want to see forms, keys, or login screens. Do the whole job wi
    `vault_import_document` on the path. It parses notes, markdown, `.env`, JSON, and CSV exports
    from Chrome, 1Password, Bitwarden or LastPass, and reports account names only. Offer to
    delete the source file afterwards (`delete_after`); ordinary deletion is not secure erasure.
-3. **Only then ask** — and ask for exactly one thing, naming the ref: "I need `github.password`."
-   For 2FA, ask for the base32 seed behind the QR code once, store as `<account>.totp`, and
-   generate codes yourself from then on.
+3. **Only then ask** — and ask for exactly one thing. Use `vault_add` with the ref you need
+   (e.g. `github.password`): it prompts the user directly and the value never enters your
+   context. Do not ask them to paste it into the chat. For 2FA, ask for the base32 seed behind
+   the QR code once, store as `<account>.totp`, and generate codes yourself from then on.
 
 Check `vault_list` before asking for anything.
 
 ## Working a page
 
-`browser_open` → read the snapshot (it lists visible text plus every element with a selector) →
-act with `browser_click` / `browser_type` / `browser_fill_secret` → snapshot again. Use the
-selectors from the snapshot; never invent them. `browser_wait` for slow steps, `browser_screenshot`
-when something looks wrong. Use one profile per site, named after the site.
+`standin_session` (one per site, named after the site) → `browser_navigate` → `browser_snapshot`
+(it lists visible text plus every element with a reference) → act with `browser_click` /
+`browser_type` / `browser_fill_secret` → snapshot again. Pass the element reference from the
+snapshot as `target` — a unique CSS selector also works. Never invent a target; take it from a
+snapshot. `browser_wait_for` for slow steps, `browser_take_screenshot` when something looks wrong.
 
 ## Moving an API key from A to B
 
@@ -67,5 +69,7 @@ directly, once per row of a CSV.
 ## Stop and ask only for
 
 CAPTCHAs, hardware security keys, SMS/email codes you cannot reach, payments, plan upgrades,
-deleting things, or a credential that genuinely isn't available. Say exactly what you need and
-what you'll do with it. Never reset a password on your own.
+deleting things, or a credential that genuinely isn't available. Ask with `standin_ask_user` so
+the question goes to the user and execution blocks until they answer — pass `choices` when there
+is a small set of options. Say exactly what you need and what you'll do with it. Never reset a
+password on your own.

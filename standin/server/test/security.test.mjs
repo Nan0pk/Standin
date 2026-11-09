@@ -9,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'standin-security-'));
+process.env.STANDIN_HOME = path.join(tmp, 'home');
+process.env.STANDIN_PROFILES = path.join(tmp, 'profiles');
 const vault = path.join(tmp, 'vault.enc');
 const moduleUrl = new URL('../src/vault.mjs', import.meta.url).href;
 const run = (code, pass) => spawnSync(process.execPath, ['--input-type=module', '-e', code], {
@@ -38,8 +40,20 @@ test('MCP server starts and lists its tools', async () => {
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.ok(tools.some(tool => tool.name === 'browser_open'));
-    assert.ok(tools.some(tool => tool.name === 'vault_import_document'));
+    const names = tools.map(t => t.name);
+    // standin's own credential tools
+    assert.ok(names.includes('vault_import_document'), 'missing vault_import_document');
+    assert.ok(names.includes('browser_fill_secret'), 'missing browser_fill_secret');
+    assert.ok(names.includes('browser_capture_secret'), 'missing browser_capture_secret');
+    assert.ok(names.includes('standin_session'), 'missing standin_session');
+    // browser plumbing now comes from the bridged Playwright MCP
+    assert.ok(names.includes('browser_navigate'), 'bridged browser_navigate missing');
+    assert.ok(names.includes('browser_snapshot'), 'bridged browser_snapshot missing');
+    // tools that would let the model read a secret back must never be advertised
+    for (const banned of ['browser_run_code_unsafe', 'browser_storage_state', 'browser_cookie_get',
+                          'browser_cookie_list', 'browser_localstorage_get', 'browser_sessionstorage_get']) {
+      assert.ok(!names.includes(banned), `${banned} must not be exposed`);
+    }
   } finally { await client.close(); }
 });
 
@@ -65,6 +79,59 @@ test('HTTP responses redact a vault value echoed by the remote service', async (
     await client.close();
     await new Promise(resolve => server.close(resolve));
   }
+});
+
+test('vault operations prevent prototype pollution', () => {
+  const code = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('__proto__.polluted', 'yes');
+  `;
+  const result = run(code, 'correct-passphrase');
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /forbidden keys used/);
+
+  const code2 = `
+    const { vaultSet } = await import(${JSON.stringify(moduleUrl)});
+    vaultSet('constructor.prototype', 'yes');
+  `;
+  const result2 = run(code2, 'correct-passphrase');
+  assert.notEqual(result2.status, 0);
+  assert.match(result2.stderr, /forbidden keys used/);
+});
+
+test('document imports reject reserved keys before changing the vault or its cache', () => {
+  const fixtures = [
+    '{"safe":{"password":"new"},"constructor":{"password":"synthetic"}}',
+    '{"safe":{"password":"new"},"prototype":{"password":"synthetic"}}',
+    '{"safe":{"password":"new","constructor":"synthetic"}}',
+    '{"safe":{"password":"new","prototype":"synthetic"}}',
+  ];
+  for (const fixture of fixtures) {
+    const code = `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      const { vaultSet, vaultList, importDocument } = await import(${JSON.stringify(moduleUrl)});
+      vaultSet('original.password', 'unchanged');
+      const before = fs.readFileSync(process.env.STANDIN_VAULT_FILE);
+      const file = ${JSON.stringify(path.join(tmp, 'reserved-keys.json'))};
+      fs.writeFileSync(file, ${JSON.stringify(fixture)});
+      assert.throws(() => importDocument(file), /forbidden keys used/);
+      assert.deepEqual(fs.readFileSync(process.env.STANDIN_VAULT_FILE), before);
+      assert.ok(!vaultList().some(row => row.startsWith('safe:')));
+      assert.equal(Object.hasOwn(Object, 'password'), false);
+      assert.equal(Object.hasOwn(Object.prototype, 'password'), false);
+    `;
+    const result = run(code, 'correct-passphrase');
+    assert.equal(result.status, 0, result.stderr);
+  }
+});
+
+test('mcp run_task prevents path traversal', async () => {
+  const { call } = await import('../src/mcp.mjs');
+  await assert.rejects(
+    () => call('run_task', { name: '../../../../../../tmp/hacked.yaml' }),
+    /path traversal detected/
+  );
 });
 
 test('runner prevents path traversal in download steps', async () => {
