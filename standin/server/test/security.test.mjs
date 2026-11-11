@@ -126,6 +126,18 @@ test('document imports reject reserved keys before changing the vault or its cac
   }
 });
 
+test('mcp http_request prevents SSRF to non-HTTP(S) protocols', async () => {
+  const { call } = await import('../src/mcp.mjs');
+  await assert.rejects(
+    () => call('http_request', { url: 'file:///etc/passwd' }),
+    /Invalid protocol file:/
+  );
+  await assert.rejects(
+    () => call('http_request', { url: 'data:text/plain,Hello' }),
+    /Invalid protocol data:/
+  );
+});
+
 test('mcp run_task prevents path traversal', async () => {
   const { call } = await import('../src/mcp.mjs');
   await assert.rejects(

@@ -9,3 +9,7 @@
 **Learning:** Destructuring strings into Object paths and directly assigning properties `data[acct] ||= {}; data[acct][field] = value;` is unsafe if `acct` or `field` can be parsed as `__proto__`, `constructor`, or `prototype` (especially from user-provided or externally sourced string references like `{{vault.__proto__.something}}`).
 
 **Prevention:** Always validate or sanitize split string keys prior to using them as dynamic property indices on unsealed JavaScript Objects. Reject explicit usage of `__proto__`, `constructor`, or `prototype` if the destination path modifies properties.
+## 2023-10-25 - Prevent SSRF in `http_request` MCP Tool
+**Vulnerability:** The `http_request` MCP tool directly passed user-supplied URLs to `fetch()` without protocol validation, allowing Server-Side Request Forgery (SSRF) and Local File Inclusion (LFI) via `file://` or `data://` protocols.
+**Learning:** Tools relying on `fetch` or HTTP clients with user-supplied URLs must restrict protocols, as underlying mechanisms might resolve non-HTTP schemes exposing local files or memory.
+**Prevention:** Always parse untrusted URLs using `new URL()` and explicitly allow-list valid protocols (`http:` and `https:`) before making external requests.
