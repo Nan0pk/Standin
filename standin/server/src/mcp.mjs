@@ -214,7 +214,12 @@ async function call(name, a = {}) {
   }
   if (name === 'http_request') {
     const sub = s => String(s).replace(/\{\{\s*vault\.([^}\s]+)\s*\}\}/g, (_, r) => remember(getSecret(r)));
-    const res = await fetch(sub(a.url), {
+    // Security: Prevent SSRF (e.g., file://, data://) by restricting URL protocols
+    const url = new URL(sub(a.url));
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error(`Invalid protocol ${url.protocol}. Only http and https are allowed.`);
+    }
+    const res = await fetch(url.href, {
       method: (a.method || 'GET').toUpperCase(),
       headers: Object.fromEntries(Object.entries(a.headers || {}).map(([k, v]) => [k, sub(v)])),
       body: a.body ? sub(a.body) : undefined,
